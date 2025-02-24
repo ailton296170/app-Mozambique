@@ -1,0 +1,36 @@
+import Stripe from "stripe";
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+export default async function handler(req, res) {
+  const sig = req.headers["stripe-signature"];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+  } catch (err) {
+    res.status(400).send(`Webhook Error: ${err.message}`);
+    return;
+  }
+
+  switch (event.type) {
+    case "checkout.session.completed":
+      const session = event.data.object;
+      await grantCourseAccess(session.metadata.courseId, session.customer_email);
+      break;
+    default:
+      console.log(`Unhandled event type: ${event.type}`);
+  }
+
+  res.status(200).json({ received: true });
+}
+
+const grantCourseAccess = async (courseId, email) => {
+  const { data, error } = await supabase
+    .from("user_courses")
+    .insert([{ course_id: courseId, user_email: email }]);
+
+  if (error) console.error("Database error:", error);
+  else console.log("Course access granted:", data);
+};
